@@ -1,0 +1,16 @@
+{
+  "name": "cmdk",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "bun run build:background && bun run build:popup",
+    "build:background": "bun build src/background.ts --outdir . --target browser",
+    "build:popup": "bun build src/popup.ts --outdir . --target browser",
+    "dev": "bun run build --watch"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/chrome": "^0.1.33",
+    "typescript": "^5"
+  }
+}
