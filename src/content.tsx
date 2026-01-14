@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createRoot } from "react-dom/client";
+import { scanActions, type ActionItem } from "./dom-scanner";
 
 const styles = `
 :host {
@@ -89,18 +90,48 @@ const styles = `
   overflow-y: auto;
 }
 
-.cmdk-hello {
+.cmdk-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  cursor: pointer;
+  border-radius: 8px;
+  gap: 12px;
+}
+
+.cmdk-item:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.cmdk-item.selected {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.cmdk-item-label {
+  flex: 1;
+  font-size: 14px;
+  color: var(--cmdk-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmdk-item-type {
+  font-size: 11px;
+  color: var(--cmdk-text-secondary);
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 4px;
+  text-transform: capitalize;
+}
+
+.cmdk-empty {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 180px;
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--cmdk-text);
-  background: linear-gradient(135deg, var(--cmdk-accent), #ff6b6b);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  font-size: 14px;
+  color: var(--cmdk-text-secondary);
 }
 
 .cmdk-footer {
@@ -125,6 +156,7 @@ const styles = `
   min-width: 20px;
   height: 20px;
   padding: 0 6px;
+  margin-right: 8px;
   font-size: 11px;
   font-family: inherit;
   background: rgba(0, 0, 0, 0.05);
@@ -158,26 +190,94 @@ interface CommandPaletteProps {
 
 function CommandPalette({ visible, onClose }: CommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
+  const [actions, setActions] = useState<ActionItem[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState(0);
 
+  // Filter actions based on query
+  const filteredActions = useMemo(() => {
+    if (!query.trim()) return actions;
+    const lowerQuery = query.toLowerCase();
+    return actions.filter(
+      (action) =>
+        action.label.toLowerCase().includes(lowerQuery) ||
+        action.rawLabel.toLowerCase().includes(lowerQuery)
+    );
+  }, [actions, query]);
+
+  // Reset selection when query changes
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [query]);
+
+  // Scan DOM when palette opens
   useEffect(() => {
     if (visible) {
+      const scanned = scanActions();
+      setActions(scanned);
+      setQuery("");
+      setSelectedIndex(0);
       inputRef.current?.focus();
     }
   }, [visible]);
 
+  // Scroll selected item into view
   useEffect(() => {
-    if (!visible) return;
+    if (!contentRef.current) return;
+    const selectedEl = contentRef.current.querySelector(".cmdk-item.selected");
+    if (selectedEl) {
+      selectedEl.scrollIntoView({ block: "nearest" });
+    }
+  }, [selectedIndex]);
 
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
+  // Execute an action
+  const executeAction = (action: ActionItem) => {
+    onClose();
+
+    // Small delay to let the palette close
+    setTimeout(() => {
+      const { element, type } = action;
+
+      // Scroll into view if needed
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+
+      // Execute based on type
+      if (type === "input") {
+        element.focus();
+        if (element instanceof HTMLSelectElement) {
+          // Trigger click to open dropdown
+          element.click();
+        }
+      } else {
+        element.click();
       }
-    };
+    }, 100);
+  };
 
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
-  }, [visible, onClose]);
+  // Handle keyboard navigation
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedIndex((i) =>
+        filteredActions.length > 0 ? (i + 1) % filteredActions.length : 0
+      );
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedIndex((i) =>
+        filteredActions.length > 0
+          ? (i - 1 + filteredActions.length) % filteredActions.length
+          : 0
+      );
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (filteredActions[selectedIndex]) {
+        executeAction(filteredActions[selectedIndex]);
+      }
+    } else if (e.key === "Escape") {
+      onClose();
+    }
+  };
 
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
@@ -191,23 +291,43 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
       className={visible ? "visible" : ""}
       onClick={handleOverlayClick}
     >
-      <div className="cmdk-modal">
+      <div className="cmdk-modal" onKeyDown={handleKeyDown}>
         <div className="cmdk-header">
           <input
             ref={inputRef}
             type="text"
             className="cmdk-input"
-            placeholder="Type a command..."
+            placeholder="Type to search actions..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <div className="cmdk-content">
-          <div className="cmdk-hello">Hello World</div>
+        <div className="cmdk-content" ref={contentRef}>
+          {filteredActions.length > 0 ? (
+            filteredActions.map((action, index) => (
+              <div
+                key={action.id}
+                className={`cmdk-item ${index === selectedIndex ? "selected" : ""}`}
+                onClick={() => executeAction(action)}
+                onMouseEnter={() => setSelectedIndex(index)}
+              >
+                <span className="cmdk-item-label">{action.label}</span>
+                <span className="cmdk-item-type">{action.type}</span>
+              </div>
+            ))
+          ) : (
+            <div className="cmdk-empty">
+              {actions.length === 0
+                ? "No actions found on this page"
+                : "No matching actions"}
+            </div>
+          )}
         </div>
         <div className="cmdk-footer">
           <span className="cmdk-hint">
-            <kbd>esc</kbd> to close
+            <kbd>↑</kbd><kbd>↓</kbd> navigate
+            <kbd>↵</kbd> select
+            <kbd>esc</kbd> close
           </span>
         </div>
       </div>
