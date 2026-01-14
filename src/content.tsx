@@ -125,6 +125,23 @@ const styles = `
   text-transform: capitalize;
 }
 
+.cmdk-group {
+  margin-bottom: 8px;
+}
+
+.cmdk-group:last-child {
+  margin-bottom: 0;
+}
+
+.cmdk-group-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cmdk-text-secondary);
+  padding: 8px 12px 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 .cmdk-empty {
   display: flex;
   align-items: center;
@@ -195,15 +212,25 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  // Filter actions based on query
+  // Filter and sort actions by type
   const filteredActions = useMemo(() => {
-    if (!query.trim()) return actions;
-    const lowerQuery = query.toLowerCase();
-    return actions.filter(
-      (action) =>
-        action.label.toLowerCase().includes(lowerQuery) ||
-        action.rawLabel.toLowerCase().includes(lowerQuery)
-    );
+    let filtered = actions;
+    if (query.trim()) {
+      const lowerQuery = query.toLowerCase();
+      filtered = actions.filter(
+        (action) =>
+          action.label.toLowerCase().includes(lowerQuery) ||
+          action.rawLabel.toLowerCase().includes(lowerQuery)
+      );
+    }
+    // Sort by type priority: buttons first, then interactive, then inputs, then links
+    const typePriority: Record<string, number> = {
+      button: 0,
+      interactive: 1,
+      input: 2,
+      link: 3,
+    };
+    return [...filtered].sort((a, b) => (typePriority[a.type] ?? 99) - (typePriority[b.type] ?? 99));
   }, [actions, query]);
 
   // Reset selection when query changes
@@ -371,7 +398,7 @@ function App() {
   // Debounced toggle to prevent double-firing from both DOM and Chrome commands
   const toggle = () => {
     const now = Date.now();
-    if (now - lastToggleRef.current < 100) return; // Ignore if within 100ms
+    if (now - lastToggleRef.current < 100) return;
     lastToggleRef.current = now;
     setVisible((v) => !v);
   };
