@@ -672,7 +672,13 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
         }
       }
     } else if (e.key === "Escape") {
-      onClose();
+      if (e.metaKey && chainState.levels.length > 0) {
+        // Cmd+Escape: go back to first page of actions
+        e.preventDefault();
+        handleNavigateBack(-1);
+      } else {
+        onClose();
+      }
     }
   };
 
