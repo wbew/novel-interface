@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createRoot } from "react-dom/client";
-import { scanActions, type ActionItem } from "./dom-scanner";
+import { scanActions, executeAction, filterActions, sortActions, type ActionItem } from "./lib";
 
 const styles = `
 :host {
@@ -255,23 +255,8 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
 
   // Filter and sort actions by type
   const filteredActions = useMemo(() => {
-    let filtered = actions;
-    if (query.trim()) {
-      const lowerQuery = query.toLowerCase();
-      filtered = actions.filter(
-        (action) =>
-          action.label.toLowerCase().includes(lowerQuery) ||
-          action.rawLabel.toLowerCase().includes(lowerQuery)
-      );
-    }
-    // Sort by type priority: buttons first, then interactive, then inputs, then links
-    const typePriority: Record<string, number> = {
-      button: 0,
-      interactive: 1,
-      input: 2,
-      link: 3,
-    };
-    return [...filtered].sort((a, b) => (typePriority[a.type] ?? 99) - (typePriority[b.type] ?? 99));
+    const filtered = filterActions(actions, query);
+    return sortActions(filtered);
   }, [actions, query]);
 
   // Reset selection when query changes
@@ -299,7 +284,7 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
   // Scan DOM when palette opens
   useEffect(() => {
     if (visible) {
-      const scanned = scanActions();
+      const scanned = scanActions("#cmdk-root");
       setActions(scanned);
       setQuery("");
       setSelectedIndex(0);
@@ -340,27 +325,10 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
   }, [selectedIndex]);
 
   // Execute an action
-  const executeAction = (action: ActionItem) => {
+  const handleExecuteAction = (action: ActionItem) => {
     onClose();
-
     // Small delay to let the palette close
-    setTimeout(() => {
-      const { element, type } = action;
-
-      // Scroll into view if needed
-      element.scrollIntoView({ behavior: "smooth", block: "center" });
-
-      // Execute based on type
-      if (type === "input") {
-        element.focus();
-        if (element instanceof HTMLSelectElement) {
-          // Trigger click to open dropdown
-          element.click();
-        }
-      } else {
-        element.click();
-      }
-    }, 100);
+    setTimeout(() => executeAction(action), 100);
   };
 
   // Handle keyboard navigation
@@ -380,7 +348,7 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (filteredActions[selectedIndex]) {
-        executeAction(filteredActions[selectedIndex]);
+        handleExecuteAction(filteredActions[selectedIndex]);
       }
     } else if (e.key === "Escape") {
       onClose();
@@ -416,7 +384,7 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
               <div
                 key={action.id}
                 className={`cmdk-item ${index === selectedIndex ? "selected" : ""}`}
-                onClick={() => executeAction(action)}
+                onClick={() => handleExecuteAction(action)}
                 onMouseEnter={() => setSelectedIndex(index)}
               >
                 <span className="cmdk-item-label">{action.label}</span>

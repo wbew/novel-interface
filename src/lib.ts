@@ -1,10 +1,16 @@
+// ============ TYPES ============
+
+export type ActionType = "button" | "link" | "input" | "interactive";
+
 export type ActionItem = {
   id: string;
   label: string;
   element: HTMLElement;
-  type: "button" | "link" | "input" | "interactive";
+  type: ActionType;
   rawLabel: string;
 };
+
+// ============ SCANNER ============
 
 /**
  * Extract a meaningful label from an element using various sources
@@ -93,7 +99,7 @@ function getParentContext(element: HTMLElement): string | null {
 /**
  * Determine the action type based on the element
  */
-function getActionType(element: HTMLElement): ActionItem["type"] {
+function getActionType(element: HTMLElement): ActionType {
   const tagName = element.tagName.toLowerCase();
 
   if (tagName === "button") return "button";
@@ -124,7 +130,7 @@ function isVisible(element: HTMLElement): boolean {
 /**
  * Scan the DOM for all interactive elements
  */
-export function scanActions(): ActionItem[] {
+export function scanActions(excludeSelector?: string): ActionItem[] {
   const selectors = [
     "button",
     "a[href]",
@@ -141,11 +147,11 @@ export function scanActions(): ActionItem[] {
   const labelCounts = new Map<string, number>();
 
   // First pass: collect all elements and count label occurrences
-  const candidates: { element: HTMLElement; rawLabel: string; type: ActionItem["type"] }[] = [];
+  const candidates: { element: HTMLElement; rawLabel: string; type: ActionType }[] = [];
 
   elements.forEach((element) => {
-    // Skip elements inside our cmdk overlay
-    if (element.closest("#cmdk-root")) return;
+    // Skip elements inside excluded selector (e.g., our cmdk overlay)
+    if (excludeSelector && element.closest(excludeSelector)) return;
 
     // Skip invisible elements
     if (!isVisible(element)) return;
@@ -189,4 +195,55 @@ export function scanActions(): ActionItem[] {
   });
 
   return actions;
+}
+
+// ============ EXECUTOR ============
+
+/**
+ * Execute an action by scrolling to it and clicking/focusing
+ */
+export function executeAction(action: ActionItem): void {
+  const { element, type } = action;
+
+  // Scroll into view if needed
+  element.scrollIntoView({ behavior: "smooth", block: "center" });
+
+  // Execute based on type
+  if (type === "input") {
+    element.focus();
+    if (element instanceof HTMLSelectElement) {
+      // Trigger click to open dropdown
+      element.click();
+    }
+  } else {
+    element.click();
+  }
+}
+
+// ============ MATCHER ============
+
+/**
+ * Filter actions by a search query
+ */
+export function filterActions(actions: ActionItem[], query: string): ActionItem[] {
+  const q = query.toLowerCase().trim();
+  if (!q) return actions;
+  return actions.filter(
+    (action) =>
+      action.label.toLowerCase().includes(q) ||
+      action.rawLabel.toLowerCase().includes(q)
+  );
+}
+
+/**
+ * Sort actions by type priority: buttons first, then interactive, then inputs, then links
+ */
+export function sortActions(actions: ActionItem[]): ActionItem[] {
+  const priority: Record<ActionType, number> = {
+    button: 0,
+    interactive: 1,
+    input: 2,
+    link: 3,
+  };
+  return [...actions].sort((a, b) => priority[a.type] - priority[b.type]);
 }
