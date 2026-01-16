@@ -10,6 +10,24 @@ export type ActionItem = {
   rawLabel: string;
 };
 
+/** Serializable version of ActionItem (no DOM element) for cross-context messaging */
+export type SerializedAction = {
+  id: string;
+  label: string;
+  type: ActionType;
+  rawLabel: string;
+  href?: string;
+  selector: string;
+};
+
+/** Represents one level in the action chain */
+export type ActionChainLevel = {
+  url: string;
+  pageTitle: string;
+  actions: SerializedAction[];
+  selectedAction: SerializedAction;
+};
+
 // ============ SCANNER ============
 
 /**
@@ -246,4 +264,92 @@ export function sortActions(actions: ActionItem[]): ActionItem[] {
     link: 3,
   };
   return [...actions].sort((a, b) => priority[a.type] - priority[b.type]);
+}
+
+// ============ SERIALIZATION ============
+
+/**
+ * Generate a unique CSS selector for an element
+ */
+export function generateSelector(element: HTMLElement): string {
+  // Try ID first (most reliable)
+  if (element.id) {
+    return `#${CSS.escape(element.id)}`;
+  }
+
+  // Build path from element up to a unique ancestor
+  const path: string[] = [];
+  let current: HTMLElement | null = element;
+
+  while (current && current !== document.body) {
+    let selector = current.tagName.toLowerCase();
+
+    // If we hit an element with ID, use it as anchor
+    if (current.id) {
+      path.unshift(`#${CSS.escape(current.id)}`);
+      break;
+    }
+
+    // Add nth-of-type for specificity among siblings
+    const parent = current.parentElement;
+    if (parent) {
+      const siblings = Array.from(parent.children).filter(
+        (c) => c.tagName === current!.tagName
+      );
+      if (siblings.length > 1) {
+        const index = siblings.indexOf(current) + 1;
+        selector += `:nth-of-type(${index})`;
+      }
+    }
+
+    path.unshift(selector);
+    current = parent;
+  }
+
+  // Add body as root if we didn't find an ID
+  if (path.length > 0 && !path[0].startsWith("#")) {
+    path.unshift("body");
+  }
+
+  return path.join(" > ");
+}
+
+/**
+ * Convert ActionItem to SerializedAction for cross-context messaging
+ */
+export function serializeAction(action: ActionItem): SerializedAction {
+  const { element, ...rest } = action;
+  return {
+    ...rest,
+    href: element instanceof HTMLAnchorElement ? element.href : undefined,
+    selector: generateSelector(element),
+  };
+}
+
+/**
+ * Scan and return serialized actions (for use in hidden tabs)
+ */
+export function scanAndSerialize(excludeSelector?: string): SerializedAction[] {
+  const actions = scanActions(excludeSelector);
+  return sortActions(actions).map(serializeAction);
+}
+
+/**
+ * Find element by selector and execute action
+ */
+export function executeSerializedAction(action: SerializedAction): boolean {
+  const element = document.querySelector<HTMLElement>(action.selector);
+  if (!element) return false;
+
+  element.scrollIntoView({ behavior: "smooth", block: "center" });
+
+  if (action.type === "input") {
+    element.focus();
+    if (element instanceof HTMLSelectElement) {
+      element.click();
+    }
+  } else {
+    element.click();
+  }
+  return true;
 }

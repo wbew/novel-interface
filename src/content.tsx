@@ -1,6 +1,19 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createRoot } from "react-dom/client";
-import { scanActions, executeAction, filterActions, sortActions, type ActionItem } from "./lib";
+import {
+  scanActions,
+  executeAction,
+  filterActions,
+  sortActions,
+  scanAndSerialize,
+  serializeAction,
+  type ActionItem,
+  type SerializedAction,
+  type ActionChainLevel,
+} from "./lib";
+
+// Expose scanAndSerialize for background script to call in hidden tabs
+(window as any).__cmdk__ = { scanAndSerialize };
 
 const styles = `
 :host {
@@ -56,6 +69,48 @@ const styles = `
 
 #cmdk-overlay.visible .cmdk-modal {
   transform: translateY(0);
+}
+
+.cmdk-breadcrumbs {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  background: rgba(0, 0, 0, 0.02);
+  border-bottom: 1px solid var(--cmdk-border);
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.cmdk-breadcrumb {
+  background: none;
+  border: none;
+  color: var(--cmdk-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: inherit;
+  max-width: 150px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmdk-breadcrumb:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--cmdk-text);
+}
+
+.cmdk-breadcrumb.active {
+  color: var(--cmdk-text);
+  font-weight: 500;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.cmdk-breadcrumb-separator {
+  color: var(--cmdk-text-secondary);
+  font-size: 10px;
 }
 
 .cmdk-header {
@@ -125,6 +180,14 @@ const styles = `
   text-transform: capitalize;
 }
 
+.cmdk-item-drill {
+  font-size: 11px;
+  color: var(--cmdk-accent);
+  padding: 2px 6px;
+  background: rgba(255, 99, 99, 0.1);
+  border-radius: 4px;
+}
+
 .cmdk-group {
   margin-bottom: 8px;
 }
@@ -151,16 +214,79 @@ const styles = `
   color: var(--cmdk-text-secondary);
 }
 
+.cmdk-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 180px;
+  gap: 12px;
+}
+
+.cmdk-loading-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--cmdk-border);
+  border-top-color: var(--cmdk-accent);
+  border-radius: 50%;
+  animation: cmdk-spin 0.8s linear infinite;
+}
+
+@keyframes cmdk-spin {
+  to { transform: rotate(360deg); }
+}
+
+.cmdk-loading-text {
+  font-size: 13px;
+  color: var(--cmdk-text-secondary);
+}
+
+.cmdk-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 180px;
+  gap: 12px;
+  color: var(--cmdk-accent);
+}
+
+.cmdk-error-text {
+  font-size: 13px;
+}
+
+.cmdk-error-retry {
+  font-size: 12px;
+  color: var(--cmdk-text-secondary);
+  background: none;
+  border: 1px solid var(--cmdk-border);
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.cmdk-error-retry:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
 .cmdk-footer {
   padding: 12px 16px;
   border-top: 1px solid var(--cmdk-border);
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .cmdk-hint {
   font-size: 12px;
   color: var(--cmdk-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cmdk-hint-item {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -173,7 +299,6 @@ const styles = `
   min-width: 20px;
   height: 20px;
   padding: 0 6px;
-  margin-right: 8px;
   font-size: 11px;
   font-family: inherit;
   background: rgba(0, 0, 0, 0.05);
@@ -241,6 +366,13 @@ function updateHighlight(element: HTMLElement | null) {
   highlightEl.classList.add("visible");
 }
 
+// Chain state type
+interface ChainState {
+  levels: ActionChainLevel[];
+  isLoading: boolean;
+  error: string | null;
+}
+
 interface CommandPaletteProps {
   visible: boolean;
   onClose: () => void;
@@ -253,26 +385,57 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  // Filter and sort actions by type
+  // Chain state for stringed actions
+  const [chainState, setChainState] = useState<ChainState>({
+    levels: [],
+    isLoading: false,
+    error: null,
+  });
+
+  // Get current actions (either from chain level or local scan)
+  const currentSerializedActions = useMemo(() => {
+    const currentLevel = chainState.levels[chainState.levels.length - 1];
+    return currentLevel?.actions ?? null;
+  }, [chainState.levels]);
+
+  // Filter and sort actions
   const filteredActions = useMemo(() => {
+    if (currentSerializedActions) {
+      // Filter serialized actions from chain
+      const q = query.toLowerCase().trim();
+      if (!q) return currentSerializedActions;
+      return currentSerializedActions.filter(
+        (action) =>
+          action.label.toLowerCase().includes(q) ||
+          action.rawLabel.toLowerCase().includes(q)
+      );
+    }
+    // Filter local actions
     const filtered = filterActions(actions, query);
     return sortActions(filtered);
-  }, [actions, query]);
+  }, [actions, query, currentSerializedActions]);
 
   // Reset selection when query changes
   useEffect(() => {
     setSelectedIndex(0);
   }, [query]);
 
-  // Update highlight when selection changes (keyboard or mouse)
+  // Update highlight when selection changes (only for local actions)
   useEffect(() => {
-    const selectedAction = filteredActions[selectedIndex];
-    if (selectedAction && visible) {
+    if (currentSerializedActions) {
+      // No highlight for remote actions
+      updateHighlight(null);
+      return;
+    }
+    const selectedAction = filteredActions[selectedIndex] as
+      | ActionItem
+      | undefined;
+    if (selectedAction && visible && "element" in selectedAction) {
       updateHighlight(selectedAction.element);
     } else {
       updateHighlight(null);
     }
-  }, [selectedIndex, filteredActions, visible]);
+  }, [selectedIndex, filteredActions, visible, currentSerializedActions]);
 
   // Clear highlight when palette closes
   useEffect(() => {
@@ -281,13 +444,14 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
     }
   }, [visible]);
 
-  // Scan DOM when palette opens
+  // Scan DOM when palette opens, reset chain state
   useEffect(() => {
     if (visible) {
       const scanned = scanActions("#cmdk-root");
       setActions(scanned);
       setQuery("");
       setSelectedIndex(0);
+      setChainState({ levels: [], isLoading: false, error: null });
     }
   }, [visible]);
 
@@ -301,10 +465,9 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
     const tryFocus = () => {
       if (inputRef.current) {
         inputRef.current.focus();
-        // Check if focus worked (either in main document or shadow root)
         const shadowRoot = inputRef.current.getRootNode() as ShadowRoot;
         if (shadowRoot.activeElement === inputRef.current) {
-          return; // Success
+          return;
         }
       }
       if (attempts++ < maxAttempts) {
@@ -324,31 +487,189 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
     }
   }, [selectedIndex]);
 
-  // Execute an action
-  const handleExecuteAction = (action: ActionItem) => {
+  // Drill down into any action (links navigate, buttons execute then scan)
+  const handleDrillDown = async (action: ActionItem | SerializedAction) => {
+    const serialized = "element" in action ? serializeAction(action) : action;
+    const isLink = !!serialized.href;
+
+    // Determine the URL to use:
+    // - For links: use the href
+    // - For buttons/other: use current page URL (from chain level or window.location)
+    const currentLevelUrl =
+      chainState.levels.length > 0
+        ? chainState.levels[chainState.levels.length - 1]?.url
+        : window.location.href;
+    const targetUrl = isLink ? serialized.href! : currentLevelUrl;
+
+    setChainState((prev) => ({
+      ...prev,
+      isLoading: true,
+      error: null,
+    }));
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "SCAN_FUTURE_ACTIONS",
+        url: targetUrl,
+        // For non-link actions, pass the action to execute before scanning
+        action: isLink ? undefined : serialized,
+      });
+
+      if (!response.success) {
+        throw new Error(response.error || "Failed to scan page");
+      }
+
+      setChainState((prev) => ({
+        levels: [
+          ...prev.levels,
+          {
+            url: response.url || targetUrl,
+            pageTitle: response.pageTitle || "Unknown",
+            actions: response.actions || [],
+            selectedAction: serialized,
+          },
+        ],
+        isLoading: false,
+        error: null,
+      }));
+
+      setQuery("");
+      setSelectedIndex(0);
+    } catch (error) {
+      setChainState((prev) => ({
+        ...prev,
+        isLoading: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      }));
+    }
+  };
+
+  // Go back to a previous level in the chain
+  const handleNavigateBack = (targetIndex: number) => {
+    if (targetIndex < 0) {
+      // Go back to current page (level 0)
+      setChainState({ levels: [], isLoading: false, error: null });
+    } else {
+      setChainState((prev) => ({
+        ...prev,
+        levels: prev.levels.slice(0, targetIndex + 1),
+      }));
+    }
+    setQuery("");
+    setSelectedIndex(0);
+  };
+
+  // Execute a local action
+  const handleExecuteLocalAction = (action: ActionItem) => {
     onClose();
-    // Small delay to let the palette close
     setTimeout(() => executeAction(action), 100);
+  };
+
+  // Execute the chain without adding the current selection
+  const handleExecuteChainOnly = async () => {
+    if (chainState.levels.length === 0) return;
+
+    const chain: SerializedAction[] = chainState.levels.map(
+      (level) => level.selectedAction
+    );
+
+    onClose();
+
+    try {
+      await chrome.runtime.sendMessage({
+        type: "EXECUTE_CHAIN",
+        chain,
+      });
+    } catch (error) {
+      console.error("Failed to execute chain:", error);
+    }
+  };
+
+  // Execute the full chain (with current selection if any)
+  const handleExecuteChain = async () => {
+    if (chainState.levels.length === 0) return;
+
+    // Build chain from all selected actions
+    const chain: SerializedAction[] = chainState.levels.map(
+      (level) => level.selectedAction
+    );
+
+    // Add currently selected action if it exists and not the "execute chain" option
+    const adjustedIndex = selectedIndex - 1; // Account for "Execute chain" option at top
+    if (adjustedIndex >= 0) {
+      const currentAction = filteredActions[adjustedIndex] as
+        | SerializedAction
+        | undefined;
+      if (currentAction) {
+        chain.push(currentAction);
+      }
+    }
+
+    onClose();
+
+    try {
+      await chrome.runtime.sendMessage({
+        type: "EXECUTE_CHAIN",
+        chain,
+      });
+    } catch (error) {
+      console.error("Failed to execute chain:", error);
+    }
   };
 
   // Handle keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Calculate total items (including "Execute chain" option when in chain mode)
+    const totalItems =
+      chainState.levels.length > 0
+        ? filteredActions.length + 1
+        : filteredActions.length;
+
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSelectedIndex((i) =>
-        filteredActions.length > 0 ? (i + 1) % filteredActions.length : 0
-      );
+      setSelectedIndex((i) => (totalItems > 0 ? (i + 1) % totalItems : 0));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setSelectedIndex((i) =>
-        filteredActions.length > 0
-          ? (i - 1 + filteredActions.length) % filteredActions.length
-          : 0
+        totalItems > 0 ? (i - 1 + totalItems) % totalItems : 0
       );
+    } else if (e.key === "Tab" && !e.shiftKey) {
+      // Tab to drill down into any action
+      e.preventDefault();
+      // In chain mode, account for "Execute chain" option at index 0
+      const actionIndex =
+        chainState.levels.length > 0 ? selectedIndex - 1 : selectedIndex;
+      if (actionIndex >= 0) {
+        const action = filteredActions[actionIndex];
+        if (action) {
+          handleDrillDown(action);
+        }
+      }
+    } else if (
+      e.key === "Backspace" &&
+      query === "" &&
+      chainState.levels.length > 0
+    ) {
+      // Backspace with empty query goes back
+      e.preventDefault();
+      handleNavigateBack(chainState.levels.length - 2);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (filteredActions[selectedIndex]) {
-        handleExecuteAction(filteredActions[selectedIndex]);
+      if (chainState.levels.length > 0) {
+        // In chain mode
+        if (selectedIndex === 0) {
+          // "Execute chain" option selected - execute without adding new action
+          handleExecuteChainOnly();
+        } else {
+          // An action is selected - add it to chain and execute
+          handleExecuteChain();
+        }
+      } else {
+        // Execute local action
+        const action = filteredActions[selectedIndex] as ActionItem | undefined;
+        if (action && "element" in action) {
+          handleExecuteLocalAction(action);
+        }
       }
     } else if (e.key === "Escape") {
       onClose();
@@ -361,6 +682,128 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
     }
   };
 
+  // Render breadcrumbs for chain navigation
+  const renderBreadcrumbs = () => {
+    if (chainState.levels.length === 0) return null;
+
+    return (
+      <div className="cmdk-breadcrumbs">
+        <button
+          className="cmdk-breadcrumb"
+          onClick={() => handleNavigateBack(-1)}
+        >
+          Current Page
+        </button>
+        {chainState.levels.map((level, index) => (
+          <React.Fragment key={index}>
+            <span className="cmdk-breadcrumb-separator">›</span>
+            <button
+              className={`cmdk-breadcrumb ${
+                index === chainState.levels.length - 1 ? "active" : ""
+              }`}
+              onClick={() => handleNavigateBack(index)}
+              title={level.pageTitle}
+            >
+              {level.pageTitle}
+            </button>
+          </React.Fragment>
+        ))}
+      </div>
+    );
+  };
+
+  // Render content based on state
+  const renderContent = () => {
+    if (chainState.isLoading) {
+      return (
+        <div className="cmdk-loading">
+          <div className="cmdk-loading-spinner" />
+          <span className="cmdk-loading-text">Loading future actions...</span>
+        </div>
+      );
+    }
+
+    if (chainState.error) {
+      return (
+        <div className="cmdk-error">
+          <span className="cmdk-error-text">{chainState.error}</span>
+          <button
+            className="cmdk-error-retry"
+            onClick={() => {
+              const lastLevel = chainState.levels[chainState.levels.length - 1];
+              if (lastLevel) {
+                handleDrillDown(lastLevel.selectedAction);
+              }
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+
+    if (filteredActions.length === 0) {
+      return (
+        <div className="cmdk-empty">
+          {(currentSerializedActions
+            ? currentSerializedActions.length
+            : actions.length) === 0
+            ? "No actions found on this page"
+            : "No matching actions"}
+        </div>
+      );
+    }
+
+    // When in chain mode, show "Execute chain" option at top
+    const items = filteredActions.map((action, index) => {
+      const adjustedIndex = chainState.levels.length > 0 ? index + 1 : index;
+      return (
+        <div
+          key={action.id}
+          className={`cmdk-item ${
+            adjustedIndex === selectedIndex ? "selected" : ""
+          }`}
+          onClick={() => {
+            setSelectedIndex(adjustedIndex);
+            if (chainState.levels.length > 0) {
+              handleExecuteChain();
+            } else if ("element" in action) {
+              handleExecuteLocalAction(action);
+            }
+          }}
+          onMouseEnter={() => setSelectedIndex(adjustedIndex)}
+        >
+          <span className="cmdk-item-label">{action.label}</span>
+          <span className="cmdk-item-type">{action.type}</span>
+        </div>
+      );
+    });
+
+    // Add "Execute chain" option at top when in chain mode
+    if (chainState.levels.length > 0) {
+      const lastLevel = chainState.levels[chainState.levels.length - 1];
+      items.unshift(
+        <div
+          key="execute-chain"
+          className={`cmdk-item ${selectedIndex === 0 ? "selected" : ""}`}
+          onClick={() => {
+            setSelectedIndex(0);
+            handleExecuteChainOnly();
+          }}
+          onMouseEnter={() => setSelectedIndex(0)}
+        >
+          <span className="cmdk-item-label">
+            Execute:{" "}
+            {chainState.levels.map((l) => l.selectedAction.label).join(" → ")}
+          </span>
+          <span className="cmdk-item-type">chain</span>
+        </div>
+      );
+    }
+
+    return items;
+  };
+
   return (
     <div
       id="cmdk-overlay"
@@ -368,42 +811,58 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
       onClick={handleOverlayClick}
     >
       <div className="cmdk-modal" onKeyDown={handleKeyDown}>
+        {renderBreadcrumbs()}
         <div className="cmdk-header">
           <input
             ref={inputRef}
             type="text"
             className="cmdk-input"
-            placeholder="Type to search actions..."
+            placeholder={
+              chainState.levels.length > 0
+                ? "Search future actions..."
+                : "Type to search actions..."
+            }
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
         <div className="cmdk-content" ref={contentRef}>
-          {filteredActions.length > 0 ? (
-            filteredActions.map((action, index) => (
-              <div
-                key={action.id}
-                className={`cmdk-item ${index === selectedIndex ? "selected" : ""}`}
-                onClick={() => handleExecuteAction(action)}
-                onMouseEnter={() => setSelectedIndex(index)}
-              >
-                <span className="cmdk-item-label">{action.label}</span>
-                <span className="cmdk-item-type">{action.type}</span>
-              </div>
-            ))
-          ) : (
-            <div className="cmdk-empty">
-              {actions.length === 0
-                ? "No actions found on this page"
-                : "No matching actions"}
-            </div>
-          )}
+          {renderContent()}
         </div>
         <div className="cmdk-footer">
           <span className="cmdk-hint">
-            <kbd>↑</kbd><kbd>↓</kbd> navigate
-            <kbd>↵</kbd> select
-            <kbd>esc</kbd> close
+            <span className="cmdk-hint-item">
+              <kbd>↑</kbd>
+              <kbd>↓</kbd>
+              navigate
+            </span>
+            {chainState.levels.length > 0 ? (
+              <>
+                <span className="cmdk-hint-item">
+                  <kbd>⌫</kbd>
+                  back
+                </span>
+                <span className="cmdk-hint-item">
+                  <kbd>↵</kbd>
+                  execute
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="cmdk-hint-item">
+                  <kbd>Tab</kbd>
+                  queue
+                </span>
+                <span className="cmdk-hint-item">
+                  <kbd>↵</kbd>
+                  select
+                </span>
+              </>
+            )}
+            <span className="cmdk-hint-item">
+              <kbd>esc</kbd>
+              close
+            </span>
           </span>
         </div>
       </div>
