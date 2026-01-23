@@ -46,19 +46,21 @@ async function main() {
 
   // Step 3: Build result object
   const suggestionMap = new Map(suggestions.map((s) => [s.index, s]));
+  const improvedCount = suggestions.filter((s) => s.suggestedLabel).length;
 
   const result: LabelImprovementResult = {
     url,
     timestamp: new Date().toISOString(),
     pageTitle,
     totalActions: actions.length,
-    improvedCount: suggestions.length,
+    improvedCount,
     actions: actions.map((action) => {
       const suggestion = suggestionMap.get(action.index);
       return {
         index: action.index,
         id: action.id,
         type: action.type,
+        category: suggestion?.category ?? "action",
         selector: action.selector,
         originalLabel: action.label,
         suggestedLabel: suggestion?.suggestedLabel ?? null,
@@ -80,9 +82,17 @@ async function main() {
   console.log(`Improved labels: ${result.improvedCount}`);
   console.log(`Output: ${jsonPath}`);
 
-  if (suggestions.length > 0) {
-    console.log("\nSuggested improvements:");
-    for (const s of suggestions) {
+  // Category breakdown
+  const navCount = result.actions.filter((a) => a.category === "navigation").length;
+  const actionCount = result.actions.filter((a) => a.category === "action").length;
+  const inputCount = result.actions.filter((a) => a.category === "input").length;
+  console.log(`\nCategories: ${navCount} navigation, ${actionCount} action, ${inputCount} input`);
+
+  // Show improvements
+  const improvements = suggestions.filter((s) => s.suggestedLabel);
+  if (improvements.length > 0) {
+    console.log("\nSuggested label improvements:");
+    for (const s of improvements) {
       console.log(`  [${s.index}] "${s.originalLabel}" -> "${s.suggestedLabel}"`);
       console.log(`      Reason: ${s.reason}`);
     }

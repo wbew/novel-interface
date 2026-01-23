@@ -1,5 +1,7 @@
 export type ActionType = "button" | "link" | "input" | "interactive";
 
+export type ActionCategory = "navigation" | "action" | "input";
+
 export type ActionWithBounds = {
   id: string;
   index: number;
@@ -19,7 +21,8 @@ export type ActionWithBounds = {
 export type LabelSuggestion = {
   index: number;
   originalLabel: string;
-  suggestedLabel: string;
+  suggestedLabel: string | null;
+  category: ActionCategory;
   reason: string;
   confidence: "high" | "medium" | "low";
 };
@@ -34,6 +37,7 @@ export type LabelImprovementResult = {
     index: number;
     id: string;
     type: ActionType;
+    category: ActionCategory;
     selector: string;
     originalLabel: string;
     suggestedLabel: string | null;
