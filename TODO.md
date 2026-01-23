@@ -1,5 +1,18 @@
 # TODO
 
+## Element Preview
+
+### Red bounding box not showing on some elements
+- Test on HackerNews - header links don't show the highlight
+- Likely a z-index or positioning issue with the preview overlay
+
+### Preview elements below viewport
+- Currently shows "Element is below viewport" message
+- Supporting this would require scrolling to the element and re-capturing the screenshot
+- Adds complexity - evaluate if the UX benefit is worth it
+
+---
+
 ## Future Features
 
 ### AI-Generated Descriptions

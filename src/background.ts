@@ -415,4 +415,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleExecuteChain(req.chain, sender.tab?.id).then(sendResponse);
     return true;
   }
+
+  if (message.type === "CAPTURE_SCREENSHOT") {
+    chrome.tabs
+      .captureVisibleTab(undefined, { format: "jpeg", quality: 70 })
+      .then((dataUrl) => sendResponse({ success: true, dataUrl }))
+      .catch((error) => sendResponse({ success: false, error: String(error) }));
+    return true;
+  }
 });
