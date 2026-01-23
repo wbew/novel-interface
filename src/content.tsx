@@ -324,57 +324,46 @@ const styles = `
   background: rgba(0, 0, 0, 0.2);
 }
 
-.cmdk-minimap {
+.cmdk-preview {
   position: fixed;
   top: 50%;
   left: calc(50% + 336px);
   transform: translateY(-50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 12px;
   background: var(--cmdk-bg);
   border: 1px solid var(--cmdk-border);
   border-radius: var(--cmdk-radius);
   box-shadow: var(--cmdk-shadow);
+  overflow: hidden;
   pointer-events: none;
   z-index: 2147483647;
 }
 
-.cmdk-minimap-page {
+.cmdk-preview-image {
   position: relative;
-  width: 24px;
-  height: 160px;
-  background: rgba(0, 0, 0, 0.04);
-  border: 1px solid var(--cmdk-border);
-  border-radius: 3px;
+  width: 180px;
+  height: 120px;
   overflow: hidden;
 }
 
-.cmdk-minimap-viewport {
+.cmdk-preview-image img {
   position: absolute;
-  left: 0;
-  right: 0;
-  background: rgba(0, 0, 0, 0.08);
-  border-top: 1px solid rgba(0, 0, 0, 0.12);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  max-width: none;
 }
 
-.cmdk-minimap-element {
+.cmdk-preview-highlight {
   position: absolute;
-  left: 3px;
-  right: 3px;
-  background: var(--cmdk-accent);
-  border-radius: 1px;
-  min-height: 3px;
+  background: rgba(255, 99, 99, 0.2);
+  border: 2px solid var(--cmdk-accent);
+  border-radius: 2px;
+  pointer-events: none;
 }
 
-.cmdk-minimap-label {
-  font-size: 10px;
+.cmdk-preview-offscreen {
+  padding: 8px 12px;
+  font-size: 11px;
   color: var(--cmdk-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-align: center;
+  border-top: 1px solid var(--cmdk-border);
 }
 `;
 
@@ -428,10 +417,11 @@ interface ChainState {
 
 interface CommandPaletteProps {
   visible: boolean;
+  screenshot: string | null;
   onClose: () => void;
 }
 
-function CommandPalette({ visible, onClose }: CommandPaletteProps) {
+function CommandPalette({ visible, screenshot, onClose }: CommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
@@ -444,6 +434,7 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
     isLoading: false,
     error: null,
   });
+
 
 
   // Get current actions (either from chain level or local scan)
@@ -871,65 +862,91 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
     return items;
   };
 
-  // Render minimap sidebar showing element location context (auto-appears for local actions)
-  const renderMinimap = () => {
+  // Render element preview showing a cropped view centered on the selected element
+  const renderPreview = () => {
     // Only show for local actions (not chain/future actions)
-    if (currentSerializedActions) return null;
+    if (currentSerializedActions) {
+      console.log("[cmdk] Preview: skipping (chain actions)");
+      return null;
+    }
+    if (!screenshot) {
+      console.log("[cmdk] Preview: skipping (no screenshot)");
+      return null;
+    }
 
     const selectedAction = filteredActions[selectedIndex] as ActionItem | undefined;
-    if (!selectedAction || !("element" in selectedAction)) return null;
+    if (!selectedAction || !("element" in selectedAction)) {
+      console.log("[cmdk] Preview: skipping (no selected action)", { selectedAction, selectedIndex });
+      return null;
+    }
+    console.log("[cmdk] Preview: rendering for", selectedAction.label);
 
     const element = selectedAction.element;
     const rect = element.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
-    const pageHeight = document.documentElement.scrollHeight;
 
-    // Minimap height
-    const minimapHeight = 160;
+    // Preview dimensions
+    const previewWidth = 180;
+    const previewHeight = 120;
 
-    // Calculate element's absolute position on page
-    const elementAbsY = rect.top + window.scrollY;
+    // Check if element is visible in viewport
+    const isInViewport =
+      rect.top < viewportHeight &&
+      rect.bottom > 0 &&
+      rect.left < viewportWidth &&
+      rect.right > 0;
 
-    // Create a minimap-style view showing where the element is on the page
-    const scale = minimapHeight / Math.max(pageHeight, viewportHeight);
-    const viewportIndicatorHeight = Math.max(viewportHeight * scale, 16);
-    const viewportIndicatorTop = window.scrollY * scale;
+    if (!isInViewport) {
+      // Element is off-screen - show indicator
+      const direction = rect.bottom <= 0 ? "Above" : "Below";
+      return (
+        <div className="cmdk-preview">
+          <div className="cmdk-preview-offscreen">
+            Element is {direction.toLowerCase()} viewport
+          </div>
+        </div>
+      );
+    }
 
-    // Element indicator position in the minimap
-    const elementIndicatorTop = elementAbsY * scale;
-    const elementIndicatorHeight = Math.max(rect.height * scale, 3);
+    // Calculate crop region centered on element
+    const elementCenterX = rect.left + rect.width / 2;
+    const elementCenterY = rect.top + rect.height / 2;
 
-    // Determine which region of the page the element is in
-    const getRegion = () => {
-      const relativeY = elementAbsY / pageHeight;
-      if (relativeY < 0.15) return "Top";
-      if (relativeY < 0.4) return "Upper";
-      if (relativeY < 0.6) return "Middle";
-      if (relativeY < 0.85) return "Lower";
-      return "Bottom";
-    };
+    // Calculate the visible portion we want to show (in viewport coordinates)
+    const cropLeft = Math.max(0, elementCenterX - previewWidth / 2);
+    const cropTop = Math.max(0, elementCenterY - previewHeight / 2);
+
+    // Adjust if crop would go past viewport edges
+    const adjustedCropLeft = Math.min(cropLeft, viewportWidth - previewWidth);
+    const adjustedCropTop = Math.min(cropTop, viewportHeight - previewHeight);
+
+    // Element position relative to the crop region
+    const highlightLeft = rect.left - adjustedCropLeft;
+    const highlightTop = rect.top - adjustedCropTop;
 
     return (
-      <div className="cmdk-minimap">
-        <div className="cmdk-minimap-page">
-          {/* Viewport indicator */}
-          <div
-            className="cmdk-minimap-viewport"
+      <div className="cmdk-preview">
+        <div className="cmdk-preview-image">
+          <img
+            src={screenshot}
             style={{
-              top: viewportIndicatorTop,
-              height: viewportIndicatorHeight,
+              width: viewportWidth,
+              height: viewportHeight,
+              left: -adjustedCropLeft,
+              top: -adjustedCropTop,
             }}
           />
-          {/* Element indicator */}
           <div
-            className="cmdk-minimap-element"
+            className="cmdk-preview-highlight"
             style={{
-              top: elementIndicatorTop,
-              height: elementIndicatorHeight,
+              left: highlightLeft,
+              top: highlightTop,
+              width: rect.width,
+              height: rect.height,
             }}
           />
         </div>
-        <div className="cmdk-minimap-label">{getRegion()}</div>
       </div>
     );
   };
@@ -940,7 +957,7 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
       className={visible ? "visible" : ""}
       onClick={handleOverlayClick}
     >
-      {renderMinimap()}
+      {renderPreview()}
       <div className="cmdk-modal" onKeyDown={handleKeyDown}>
         {renderBreadcrumbs()}
         <div className="cmdk-header">
@@ -1007,6 +1024,7 @@ function CommandPalette({ visible, onClose }: CommandPaletteProps) {
 
 function App() {
   const [visible, setVisible] = useState(false);
+  const [screenshot, setScreenshot] = useState<string | null>(null);
   const visibleRef = useRef(visible);
   const lastToggleRef = useRef(0);
 
@@ -1016,11 +1034,31 @@ function App() {
   }, [visible]);
 
   // Debounced toggle to prevent double-firing from both DOM and Chrome commands
-  const toggle = () => {
+  const toggle = async () => {
     const now = Date.now();
     if (now - lastToggleRef.current < 100) return;
     lastToggleRef.current = now;
-    setVisible((v) => !v);
+
+    if (!visibleRef.current) {
+      // Capture screenshot BEFORE showing palette
+      try {
+        console.log("[cmdk] Capturing screenshot...");
+        const response = await chrome.runtime.sendMessage({
+          type: "CAPTURE_SCREENSHOT",
+        });
+        console.log("[cmdk] Screenshot response:", response?.success, response?.dataUrl?.length);
+        if (response.success && response.dataUrl) {
+          setScreenshot(response.dataUrl);
+        }
+      } catch (err) {
+        console.error("[cmdk] Screenshot error:", err);
+        setScreenshot(null);
+      }
+      setVisible(true);
+    } else {
+      setVisible(false);
+      setScreenshot(null);
+    }
   };
 
   useEffect(() => {
@@ -1051,7 +1089,16 @@ function App() {
     };
   }, []);
 
-  return <CommandPalette visible={visible} onClose={() => setVisible(false)} />;
+  return (
+    <CommandPalette
+      visible={visible}
+      screenshot={screenshot}
+      onClose={() => {
+        setVisible(false);
+        setScreenshot(null);
+      }}
+    />
+  );
 }
 
 // Mount React app in shadow DOM for style isolation

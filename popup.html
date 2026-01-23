@@ -3,18 +3,36 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>My Chrome Extension</title>
+  <title>cmdk</title>
   <style>
     body {
-      width: 300px;
+      width: 240px;
       padding: 16px;
       font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+    }
+    h1 {
+      font-size: 18px;
+      margin: 0 0 8px 0;
+    }
+    p {
+      margin: 0;
+      color: #666;
+      font-size: 13px;
+    }
+    kbd {
+      background: #f0f0f0;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      padding: 2px 6px;
+      font-family: monospace;
+      font-size: 12px;
     }
   </style>
 </head>
 <body>
-  <h1>My Extension</h1>
-  <p>Hello from your Chrome extension!</p>
+  <h1>cmdk</h1>
+  <p>Press <kbd>Cmd+K</kbd> to open the command palette</p>
   <script type="module" src="src/popup.ts"></script>
 </body>
 </html>
