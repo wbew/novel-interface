@@ -226,15 +226,22 @@ export async function scanPage(url: string): Promise<{
   }
 }
 
-const GEMINI_PROMPT = `You are an expert UI/UX analyst. Your task is to analyze a webpage screenshot and improve action labels for a command palette (like macOS Spotlight or VS Code's Cmd+K).
+const GEMINI_PROMPT = `You are an expert UI/UX analyst. Your task is to analyze a webpage screenshot, categorize interactive elements, and improve their labels for a command palette (like macOS Spotlight or VS Code's Cmd+K).
 
-The screenshot shows a webpage with numbered red bounding boxes. Each box corresponds to an interactive element (button, link, input, etc.).
+The screenshot shows a webpage with numbered red bounding boxes. Each box corresponds to an interactive element.
 
 I will provide you with:
 1. An annotated screenshot showing all detected actions with numbered boxes
 2. A JSON list of actions with their current labels
 
-Your job is to suggest better labels ONLY for actions that have:
+## Your Tasks
+
+### 1. Categorize EVERY element into one of these categories:
+- **navigation**: Links that go somewhere (page links, breadcrumbs, pagination, external/social links)
+- **action**: Operations that do something (buttons, toggles, modals, media controls, settings, share)
+- **input**: Data entry elements (text fields, dropdowns, checkboxes, search boxes)
+
+### 2. Suggest better labels for elements that have:
 - Vague labels (e.g., "Click here", "Submit", "Go")
 - Missing context (e.g., "Edit" when there are multiple edit buttons)
 - Technical/internal names (e.g., "btn-primary", "nav-link-2")
@@ -246,18 +253,18 @@ Good labels should be:
 - Concise but complete (max 40 characters)
 - Contextual (include what it affects, e.g., "Delete Comment" not just "Delete")
 
-DO NOT suggest changes for labels that are already clear and descriptive.
+## Response Format
 
-Respond with ONLY a JSON array of suggestions. For each action that needs improvement:
+Respond with ONLY a JSON array. Include an entry for EVERY element with its category. Only include suggestedLabel if the label needs improvement:
+
 {
   "index": <number>,
   "originalLabel": "<current label>",
-  "suggestedLabel": "<your improved label>",
-  "reason": "<brief explanation>",
+  "category": "navigation" | "action" | "input",
+  "suggestedLabel": "<improved label, or null if no change needed>",
+  "reason": "<brief explanation for category choice and any label change>",
   "confidence": "high" | "medium" | "low"
-}
-
-If no improvements are needed, return an empty array: []`;
+}`;
 
 export async function getGeminiSuggestions(
   screenshotBuffer: Buffer,
@@ -269,7 +276,7 @@ export async function getGeminiSuggestions(
   }
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
   const actionList = actions.map((a) => ({
     index: a.index,
