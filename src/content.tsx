@@ -724,8 +724,8 @@ function CommandPalette({ visible, screenshot, onClose }: CommandPaletteProps) {
       } else {
         onClose();
       }
-    } else if (e.key === " " && !currentSerializedActions) {
-      // Space to scroll to element (only for local actions)
+    } else if (e.key === " " && e.shiftKey && !currentSerializedActions) {
+      // Shift+Space to scroll to element (only for local actions)
       e.preventDefault();
       const action = filteredActions[selectedIndex] as ActionItem | undefined;
       if (action && "element" in action) {
@@ -998,7 +998,7 @@ function CommandPalette({ visible, screenshot, onClose }: CommandPaletteProps) {
             ) : (
               <>
                 <span className="cmdk-hint-item">
-                  <kbd>␣</kbd>
+                  <kbd>⇧␣</kbd>
                   focus
                 </span>
                 <span className="cmdk-hint-item">
