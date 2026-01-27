@@ -31,6 +31,26 @@ Use `bun` instead of `npm` for all commands (e.g., `bun run build`, `bun install
 
 - `scripts/experiment-label/`: Playwright-based experiments for analyzing and improving action labels using Gemini
 
+## Chrome Extension Patterns
+
+- **Message Passing**: Use `chrome.runtime.sendMessage/onMessage` for communication between background, content, and popup scripts
+- **Inline Script Execution**: Use `chrome.scripting.executeScript` for isolated DOM tasks (avoids dependency on content script loading)
+- **Screenshot Capture**: Use `chrome.tabs.captureVisibleTab` with explicit format/quality options
+- **Storage**: Use `chrome.storage.local` for persisting API keys and settings
+
+## React Patterns
+
+- **Shadow DOM**: Mount React app in shadow DOM (`delegatesFocus: true`) to isolate styles from host page
+- **CSS Variables**: Use CSS custom properties for consistent theming (`--cmdk-bg`, `--cmdk-accent`, etc.)
+- **Performance**: Use `useMemo` for expensive filtering/sorting, `useRef` for mutable non-reactive values
+- **Debouncing**: Prevent double-toggle issues with timestamp-based debouncing via `useRef`
+
+## Gemini Integration
+
+- **Two-Phase Screenshot**: Inject visual annotations → capture screenshot → remove annotations → call API
+- **Caching**: Cache API responses in-memory with TTL (e.g., 5 minutes) keyed by URL
+- **Error Handling**: Always clean up annotations even on API error; provide user-facing error messages
+
 ## Future Vision
 
 The library is designed to enable autonomous execution mode where the background script orchestrates tab navigation and sends instructions to content scripts, leveraging the user's authenticated browser session.
