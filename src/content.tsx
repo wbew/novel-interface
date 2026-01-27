@@ -7,10 +7,12 @@ import {
   sortActions,
   scanAndSerialize,
   serializeAction,
+  scanActionsWithBounds,
   type ActionItem,
   type SerializedAction,
   type ActionChainLevel,
 } from "./lib";
+import type { ActionCategory, EnhancedAction, ActionWithBounds } from "./types";
 
 // Expose scanAndSerialize for background script to call in hidden tabs
 (window as any).__cmdk__ = { scanAndSerialize };
@@ -365,6 +367,82 @@ const styles = `
   text-align: center;
   border-top: 1px solid var(--cmdk-border);
 }
+
+/* Category Filter Tabs */
+.cmdk-category-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--cmdk-border);
+}
+
+.cmdk-category-tab {
+  background: none;
+  border: 1px solid var(--cmdk-border);
+  padding: 4px 10px;
+  border-radius: 14px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--cmdk-text-secondary);
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.cmdk-category-tab:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--cmdk-text);
+}
+
+.cmdk-category-tab.active {
+  background: var(--cmdk-accent);
+  color: white;
+  border-color: var(--cmdk-accent);
+}
+
+/* Enhance Button */
+.cmdk-enhance-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.cmdk-enhance-btn:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.cmdk-enhance-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* AI Enhanced Badge */
+.cmdk-enhanced-badge {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-size: 9px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  margin-left: 6px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+/* Enhance Error */
+.cmdk-enhance-error {
+  padding: 8px 16px;
+  background: rgba(255, 99, 99, 0.1);
+  color: var(--cmdk-accent);
+  font-size: 12px;
+  border-bottom: 1px solid var(--cmdk-border);
+}
 `;
 
 // Highlight styles injected into main document (outside shadow DOM)
@@ -435,7 +513,44 @@ function CommandPalette({ visible, screenshot, onClose }: CommandPaletteProps) {
     error: null,
   });
 
+  // Enhancement state for Gemini integration
+  const [enhancedActions, setEnhancedActions] = useState<Map<string, EnhancedAction>>(new Map());
+  const [isEnhancing, setIsEnhancing] = useState(false);
+  const [enhanceError, setEnhanceError] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<ActionCategory | "all">("all");
 
+  // Handle Gemini enhancement
+  const handleEnhance = async () => {
+    if (isEnhancing || actions.length === 0) return;
+
+    setIsEnhancing(true);
+    setEnhanceError(null);
+
+    try {
+      // Get actions with bounds for annotation
+      const actionsWithBounds = scanActionsWithBounds("#cmdk-root");
+
+      const response = await chrome.runtime.sendMessage({
+        type: "ENHANCE_ACTIONS",
+        actions: actionsWithBounds,
+        url: window.location.href,
+      });
+
+      if (response?.success && response.enhancedActions) {
+        const map = new Map<string, EnhancedAction>();
+        for (const action of response.enhancedActions) {
+          map.set(action.id, action);
+        }
+        setEnhancedActions(map);
+      } else {
+        setEnhanceError(response?.error || "Enhancement failed");
+      }
+    } catch (err) {
+      setEnhanceError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setIsEnhancing(false);
+    }
+  };
 
   // Get current actions (either from chain level or local scan)
   const currentSerializedActions = useMemo(() => {
@@ -456,9 +571,35 @@ function CommandPalette({ visible, screenshot, onClose }: CommandPaletteProps) {
       );
     }
     // Filter local actions
-    const filtered = filterActions(actions, query);
-    return sortActions(filtered);
-  }, [actions, query, currentSerializedActions]);
+    let filtered = filterActions(actions, query);
+    filtered = sortActions(filtered);
+
+    // Apply category filter if we have enhanced data
+    if (categoryFilter !== "all" && enhancedActions.size > 0) {
+      filtered = filtered.filter((action) => {
+        const enhanced = enhancedActions.get(action.id);
+        return enhanced?.category === categoryFilter;
+      });
+    }
+
+    return filtered;
+  }, [actions, query, currentSerializedActions, categoryFilter, enhancedActions]);
+
+  // Count actions by category for filter tabs
+  const categoryCounts = useMemo(() => {
+    if (enhancedActions.size === 0) {
+      return { all: actions.length, navigation: 0, action: 0, input: 0 };
+    }
+    const counts = { all: 0, navigation: 0, action: 0, input: 0 };
+    const baseFiltered = sortActions(filterActions(actions, query));
+    for (const action of baseFiltered) {
+      const enhanced = enhancedActions.get(action.id);
+      const category = enhanced?.category || "action";
+      counts[category]++;
+      counts.all++;
+    }
+    return counts;
+  }, [actions, query, enhancedActions]);
 
   // Reset selection when query changes
   useEffect(() => {
@@ -489,7 +630,7 @@ function CommandPalette({ visible, screenshot, onClose }: CommandPaletteProps) {
     }
   }, [visible]);
 
-  // Scan DOM when palette opens, reset chain state
+  // Scan DOM when palette opens, reset chain state and enhancement state
   useEffect(() => {
     if (visible) {
       const scanned = scanActions("#cmdk-root");
@@ -497,6 +638,11 @@ function CommandPalette({ visible, screenshot, onClose }: CommandPaletteProps) {
       setQuery("");
       setSelectedIndex(0);
       setChainState({ levels: [], isLoading: false, error: null });
+      // Reset enhancement state
+      setEnhancedActions(new Map());
+      setIsEnhancing(false);
+      setEnhanceError(null);
+      setCategoryFilter("all");
     }
   }, [visible]);
 
@@ -770,6 +916,43 @@ function CommandPalette({ visible, screenshot, onClose }: CommandPaletteProps) {
     );
   };
 
+  // Render category filter tabs
+  const renderCategoryTabs = () => {
+    // Only show when we have enhanced data and not in chain mode
+    if (enhancedActions.size === 0 || chainState.levels.length > 0) {
+      return null;
+    }
+
+    return (
+      <div className="cmdk-category-tabs">
+        <button
+          className={`cmdk-category-tab ${categoryFilter === "all" ? "active" : ""}`}
+          onClick={() => setCategoryFilter("all")}
+        >
+          All ({categoryCounts.all})
+        </button>
+        <button
+          className={`cmdk-category-tab ${categoryFilter === "navigation" ? "active" : ""}`}
+          onClick={() => setCategoryFilter("navigation")}
+        >
+          Navigation ({categoryCounts.navigation})
+        </button>
+        <button
+          className={`cmdk-category-tab ${categoryFilter === "action" ? "active" : ""}`}
+          onClick={() => setCategoryFilter("action")}
+        >
+          Actions ({categoryCounts.action})
+        </button>
+        <button
+          className={`cmdk-category-tab ${categoryFilter === "input" ? "active" : ""}`}
+          onClick={() => setCategoryFilter("input")}
+        >
+          Inputs ({categoryCounts.input})
+        </button>
+      </div>
+    );
+  };
+
   // Render content based on state
   const renderContent = () => {
     if (chainState.isLoading) {
@@ -815,6 +998,10 @@ function CommandPalette({ visible, screenshot, onClose }: CommandPaletteProps) {
     // When in chain mode, show "Execute chain" option at top
     const items = filteredActions.map((action, index) => {
       const adjustedIndex = chainState.levels.length > 0 ? index + 1 : index;
+      const enhanced = enhancedActions.get(action.id);
+      const displayLabel = enhanced?.enhancedLabel || action.label;
+      const hasEnhancement = !!enhanced?.enhancedLabel;
+
       return (
         <div
           key={action.id}
@@ -831,7 +1018,10 @@ function CommandPalette({ visible, screenshot, onClose }: CommandPaletteProps) {
           }}
           onMouseEnter={() => setSelectedIndex(adjustedIndex)}
         >
-          <span className="cmdk-item-label">{action.label}</span>
+          <span className="cmdk-item-label">
+            {displayLabel}
+            {hasEnhancement && <span className="cmdk-enhanced-badge">AI</span>}
+          </span>
           <span className="cmdk-item-type">{action.type}</span>
         </div>
       );
@@ -974,6 +1164,12 @@ function CommandPalette({ visible, screenshot, onClose }: CommandPaletteProps) {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
+        {renderCategoryTabs()}
+        {enhanceError && (
+          <div className="cmdk-enhance-error">
+            {enhanceError}
+          </div>
+        )}
         <div className="cmdk-content" ref={contentRef}>
           {renderContent()}
         </div>
@@ -1016,6 +1212,15 @@ function CommandPalette({ visible, screenshot, onClose }: CommandPaletteProps) {
               close
             </span>
           </span>
+          {chainState.levels.length === 0 && (
+            <button
+              className="cmdk-enhance-btn"
+              onClick={handleEnhance}
+              disabled={isEnhancing || actions.length === 0}
+            >
+              {isEnhancing ? "Enhancing..." : enhancedActions.size > 0 ? "Enhanced" : "Enhance"}
+            </button>
+          )}
         </div>
       </div>
     </div>

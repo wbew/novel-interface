@@ -291,10 +291,10 @@ export function generateSelector(element: HTMLElement): string {
     }
 
     // Add nth-of-type for specificity among siblings
-    const parent = current.parentElement;
+    const parent: HTMLElement | null = current.parentElement;
     if (parent) {
       const siblings = Array.from(parent.children).filter(
-        (c) => c.tagName === current!.tagName
+        (c: Element) => c.tagName === current!.tagName
       );
       if (siblings.length > 1) {
         const index = siblings.indexOf(current) + 1;
@@ -307,7 +307,8 @@ export function generateSelector(element: HTMLElement): string {
   }
 
   // Add body as root if we didn't find an ID
-  if (path.length > 0 && !path[0].startsWith("#")) {
+  const firstPath = path[0];
+  if (path.length > 0 && firstPath && !firstPath.startsWith("#")) {
     path.unshift("body");
   }
 
@@ -352,4 +353,33 @@ export function executeSerializedAction(action: SerializedAction): boolean {
     element.click();
   }
   return true;
+}
+
+// ============ BOUNDS SCANNING (for Gemini enhancement) ============
+
+import type { ActionWithBounds } from "./types";
+
+/**
+ * Scan actions and include bounding box information for screenshot annotation
+ */
+export function scanActionsWithBounds(excludeSelector?: string): ActionWithBounds[] {
+  const actions = scanActions(excludeSelector);
+  return sortActions(actions).map((action, index) => {
+    const rect = action.element.getBoundingClientRect();
+    return {
+      id: action.id,
+      index: index + 1, // 1-based for display
+      label: action.label,
+      rawLabel: action.rawLabel,
+      type: action.type,
+      selector: generateSelector(action.element),
+      href: action.element instanceof HTMLAnchorElement ? action.element.href : undefined,
+      bounds: {
+        x: rect.x + window.scrollX,
+        y: rect.y + window.scrollY,
+        width: rect.width,
+        height: rect.height,
+      },
+    };
+  });
 }

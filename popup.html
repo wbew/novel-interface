@@ -6,7 +6,7 @@
   <title>cmdk</title>
   <style>
     body {
-      width: 240px;
+      width: 280px;
       padding: 16px;
       font-family: system-ui, -apple-system, sans-serif;
       margin: 0;
@@ -16,7 +16,7 @@
       margin: 0 0 8px 0;
     }
     p {
-      margin: 0;
+      margin: 0 0 16px 0;
       color: #666;
       font-size: 13px;
     }
@@ -28,11 +28,82 @@
       font-family: monospace;
       font-size: 12px;
     }
+    .section {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #eee;
+    }
+    .section-title {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+    .input-row {
+      display: flex;
+      gap: 8px;
+    }
+    input[type="password"] {
+      flex: 1;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    input[type="password"]:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+    .save-btn {
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .save-btn:hover {
+      background: #5a6fd6;
+    }
+    .status {
+      font-size: 12px;
+      margin-top: 8px;
+      min-height: 16px;
+    }
+    .status.success {
+      color: #22c55e;
+    }
+    .status.error {
+      color: #ef4444;
+    }
+    .hint {
+      font-size: 11px;
+      color: #999;
+      margin-top: 8px;
+    }
+    .hint a {
+      color: #667eea;
+    }
   </style>
 </head>
 <body>
   <h1>cmdk</h1>
   <p>Press <kbd>Cmd+K</kbd> to open the command palette</p>
+
+  <div class="section">
+    <div class="section-title">Gemini API Key (for AI enhancement)</div>
+    <div class="input-row">
+      <input type="password" id="api-key" placeholder="Enter your API key">
+      <button class="save-btn" id="save-btn">Save</button>
+    </div>
+    <div class="status" id="status"></div>
+    <div class="hint">
+      Get your API key from <a href="https://aistudio.google.com/apikey" target="_blank">Google AI Studio</a>
+    </div>
+  </div>
+
   <script type="module" src="src/popup.ts"></script>
 </body>
 </html>
