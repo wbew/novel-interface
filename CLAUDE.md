@@ -86,3 +86,34 @@ Open http://localhost:3000 to view the canvas.
 ### SSR Handling
 
 tldraw requires browser APIs. Components using tldraw are client-only rendered using a mounted state check.
+
+### Tldraw Custom Shapes
+
+- **ShapeUtil structure**: Extend `ShapeUtil<T>` with `type`, `props`, `getDefaultProps`, `getGeometry`, `component`, `indicator`
+- **Interactive elements**: Set `pointerEvents: 'all'` on HTMLContainer and any interactive elements (buttons, inputs)
+- **Event handling**: Use `stopPropagation()` and `preventDefault()` on event handlers
+- **Pointer events**: Prefer `onPointerDown`/`onPointerUp` over `onClick` for more robust handling
+
+### TanStack Start Server Functions
+
+- Define with `createServerFn({ method: 'POST' })`
+- Use `.inputValidator()` (not `.validator()`) for input validation
+- Dynamic import server-only deps inside handler: `await import('playwright')`
+- Externalize in `vite.config.ts`:
+  ```ts
+  optimizeDeps: { exclude: ['playwright', 'playwright-core'] }
+  ssr: { external: ['playwright', 'playwright-core'] }
+  ```
+
+### Playwright for Scraping
+
+- Use `waitUntil: "networkidle"` in `page.goto()` for complete page load
+- Handle lazy content: scroll with `page.evaluate()` + `waitForTimeout()`
+- Debug with `page.screenshot()` to see rendered state
+- Wrap network requests in try-catch; tests should handle intermittent failures
+
+### Common Pitfalls
+
+- **Bundling Playwright**: Never import directly; use dynamic imports in server functions
+- **Template literals**: Don't escape backticks (`\``) inside template strings
+- **Git worktrees**: Stash/commit changes before rebase or branch operations
