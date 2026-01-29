@@ -10,4 +10,16 @@ export default defineConfig({
     tanstackStart(),
     viteReact(),
   ],
+  optimizeDeps: {
+    exclude: ['playwright', 'playwright-core'],
+  },
+  ssr: {
+    // These packages should only run on the server
+    external: ['playwright', 'playwright-core'],
+  },
+  build: {
+    rollupOptions: {
+      external: ['playwright', 'playwright-core'],
+    },
+  },
 })
